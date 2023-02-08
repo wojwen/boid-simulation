@@ -39,36 +39,70 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     /// <summary>Array to which TRS matrices need to be copied to so that Boids can be drawn.</summary>
     private Matrix4x4[] _trsMatricesHelperArray;
 
+    /// <summary>Native array for storing indexes of the first Boid in each chunk.</summary>
+    private NativeArray<int> _chunkStartIndexes;
+
+    /// <summary>Native array for storing indexes of the last Boid in each chunk.</summary>
+    private NativeArray<int> _chunkEndIndexes;
+
+    /// <summary>Total number of chunks.</summary>
+    private int _totalChunkCount;
+
+    /// <summary>Handle for a job which sorts Boids based on the chunks they are in.</summary>
+    private JobHandle _sortBoidsByChunksJob;
+
     /// <summary>
-    /// Initializes Boids and variables.
+    /// Initializes Boids and chunks.
     /// </summary>
     private void Start()
     {
-        _chunkDimensions = new Vector3Int(simulationDimensions.x / chunkCount.x, simulationDimensions.y / chunkCount.y,
-            simulationDimensions.z / chunkCount.z);
         InitializeBoids();
+        InitializeChunks();
     }
 
     /// <summary>
     /// Runs the simulation. Steps of the simulation:
     /// <list>
-    /// <item>1. Generate TRS matrices.</item>
-    /// <item>2. Draw all boids.</item>
+    /// <item>1. Initialize chunk start/end arrays.</item>
+    /// <item>2. Finding chunk start/end indexes.</item>
+    /// <item>3. Generate TRS matrices.</item>
+    /// <item>4. Draw all boids.</item>
+    /// <item>5. Sort Boids based on chunks.</item>
     /// </list>
     /// </summary>
     private void Update()
     {
+        // schedule initializing chunk start/end arrays
+        var initializeChunkArraysJob = new InitializeChunkArraysJob
+        {
+            ChunkStartIndexes = _chunkStartIndexes,
+            ChunkEndIndexes = _chunkEndIndexes
+        }.Schedule(_totalChunkCount, JobBachSize, _sortBoidsByChunksJob);
+
+        // schedule finding chunk start/end indexes
+        var findChunkBoundsJob = new FindChunkBoundsJob
+        {
+            BoidCount = boidCount,
+            ChunkDimensions = _chunkDimensions,
+            ChunkCount = chunkCount,
+            Boids = _boids,
+            ChunkStartIndexes = _chunkStartIndexes,
+            ChunkEndIndexes = _chunkEndIndexes
+        }.Schedule(boidCount, JobBachSize, initializeChunkArraysJob);
+
         // schedule generating TRS matrices
         new GenerateTRSMatricesJob
         {
             SimulationOrigin = transform.position,
             Boids = _boids,
             TRSMatrices = _trsMatrices
-        }.Schedule(boidCount, JobBachSize).Complete();
+        }.Schedule(boidCount, JobBachSize, findChunkBoundsJob).Complete();
         _trsMatrices.CopyTo(_trsMatricesHelperArray); // copy the TRS matrices to the helper array
 
         // draw the Boids in the simulation using the TRS matrices
         Graphics.DrawMeshInstanced(boidMesh, 0, boidMaterial, _trsMatricesHelperArray, boidCount);
+
+        _sortBoidsByChunksJob = _boids.SortJob(new BoidChunkComparer(_chunkDimensions, chunkCount)).Schedule();
     }
 
     /// <summary>
@@ -78,6 +112,8 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     {
         _boids.Dispose();
         _trsMatrices.Dispose();
+        _chunkStartIndexes.Dispose();
+        _chunkEndIndexes.Dispose();
     }
 
     /// <summary>
@@ -103,6 +139,19 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     }
 
     /// <summary>
+    /// Initializes arrays and variables for storing information about chunks.
+    /// </summary>
+    private void InitializeChunks()
+    {
+        _chunkDimensions = new Vector3Int(simulationDimensions.x / chunkCount.x, simulationDimensions.y / chunkCount.y,
+            simulationDimensions.z / chunkCount.z);
+        _totalChunkCount = chunkCount.x * chunkCount.y * chunkCount.z;
+
+        _chunkStartIndexes = new NativeArray<int>(_totalChunkCount, Allocator.Persistent);
+        _chunkEndIndexes = new NativeArray<int>(_totalChunkCount, Allocator.Persistent);
+    }
+
+    /// <summary>
     /// Determines the chunk ID for a given position in the simulation.
     /// </summary>
     /// <param name="position">Position in the simulation.</param>
@@ -113,6 +162,7 @@ public class BoidSimulation : MonoBehaviour, IDisposable
         var x = Mathf.Clamp((int)position.x / chunkDimensions.x, 0, chunkCount.x - 1);
         var y = Mathf.Clamp((int)position.y / chunkDimensions.y, 0, chunkCount.y - 1);
         var z = Mathf.Clamp((int)position.z / chunkDimensions.z, 0, chunkCount.z - 1);
-        return x + y * chunkCount.y + z * chunkCount.z * chunkCount.z;
+
+        return x + y * chunkCount.x + z * chunkCount.x * chunkCount.y;
     }
 }

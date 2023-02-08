@@ -4,7 +4,7 @@ using Unity.Jobs;
 using UnityEngine;
 
 /// <summary>
-/// Generates TRS matrices for Boids in parallel. TRS matrices can be used for instanced rendering.
+/// Generates TRS matrices for Boids, in parallel. TRS matrices can be used for instanced rendering.
 /// </summary>
 [BurstCompile]
 public struct GenerateTRSMatricesJob : IJobParallelFor
@@ -36,6 +36,7 @@ public struct GenerateTRSMatricesJob : IJobParallelFor
     {
         var position = SimulationOrigin + boid.Position; // calculate position in world space
         var rotation = Quaternion.LookRotation(boid.Velocity, Vector3.up);
+
         return new Matrix4x4
         {
             m00 = 1.0f - 2.0f * (rotation.y * rotation.y + rotation.z * rotation.z),
