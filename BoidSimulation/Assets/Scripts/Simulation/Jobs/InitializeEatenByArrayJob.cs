@@ -2,21 +2,24 @@
 using Unity.Collections;
 using Unity.Jobs;
 
-/// <summary>
-/// Initializes array for storing indexes of eaters which ate Boids, in parallel.
-/// </summary>
-[BurstCompile]
-public struct InitializeEatenByArrayJob : IJobParallelFor
+namespace Simulation.Jobs
 {
-    /// <summary>Write only array for storing indexes of eaters which ate Boids.</summary>
-    [WriteOnly] public NativeArray<int> EatenBy;
-
     /// <summary>
-    /// Sets each value in the array to -1, which represents not being eaten.
+    /// Initializes array for storing indexes of eaters which ate Boids, in parallel.
     /// </summary>
-    /// <param name="index">Index of the Boid.</param>
-    public void Execute(int index)
+    [BurstCompile]
+    public struct InitializeEatenByArrayJob : IJobParallelFor
     {
-        EatenBy[index] = -1;
+        /// <summary>Write only array for storing indexes of eaters which ate Boids.</summary>
+        [WriteOnly] public NativeArray<int> EatenBy;
+
+        /// <summary>
+        /// Sets each value in the array to -1, which represents not being eaten.
+        /// </summary>
+        /// <param name="index">Index of the Boid.</param>
+        public void Execute(int index)
+        {
+            EatenBy[index] = -1;
+        }
     }
 }
