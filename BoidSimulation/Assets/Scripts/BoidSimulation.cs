@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Jobs;
 using UnityEngine;
@@ -104,16 +105,27 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     /// <summary>Total number of collision avoidance rays cast each frame.</summary>
     private int _totalRaycastCount;
 
+    private HashSet<BoidAttractor> _attractors;
+
     /// <summary>
     /// Initializes Boids and chunks.
     /// </summary>
-    private void Start()
+    private void Awake()
     {
+        SimulationManager.Instance.RegisterSimulation(this);
+
         InitializeBoids();
         InitializeChunks();
         InitializeCollisionAvoidance();
+        InitializeAttractors();
 
         _sortBoidsByChunksJob = _boidsCurrent.SortJob(new BoidChunkComparer(_chunkDimensions, chunkCount)).Schedule();
+    }
+
+    private void OnDestroy()
+    {
+        if (SimulationManager.Instance != null)
+            SimulationManager.Instance.UnregisterSimulation(this);
     }
 
     /// <summary>
@@ -169,7 +181,7 @@ public class BoidSimulation : MonoBehaviour, IDisposable
             RaycastCommand.ScheduleBatch(_raycastCommands, _raycastResults, JobBachSize, prepareRaycastCommandsJob);
 
         // calculate collision avoidance vectors based on raycast results
-        var generateAvoidanceVectors = new CalculateAvoidanceVectorsJob
+        var calculateAvoidanceVectorsJob = new CalculateAvoidanceVectorsJob
         {
             BoidRaycastCount = boidRaycastCount,
             RaycastDistance = raycastDistance,
@@ -180,7 +192,17 @@ public class BoidSimulation : MonoBehaviour, IDisposable
             AvoidanceVectors = _avoidanceVectors
         }.Schedule(boidCount, JobBachSize, raycastJob);
 
-        var simulateBoidsDependencies = JobHandle.CombineDependencies(findChunkBoundsJob, generateAvoidanceVectors);
+        var attractionVectors = new NativeArray<Vector3>(boidCount, Allocator.TempJob);
+        var attractorData = ConvertAttractorsToNativeArray();
+        var calculateAttractionVectorsJob = new CalculateAttractionVectorsJob
+        {
+            Boids = _boidsCurrent,
+            AttractorData = attractorData,
+            AttractionVectors = attractionVectors
+        }.Schedule(boidCount, JobBachSize, _sortBoidsByChunksJob);
+
+        var simulateBoidsDependencies = JobHandle.CombineDependencies(findChunkBoundsJob, calculateAvoidanceVectorsJob,
+            calculateAttractionVectorsJob);
 
         // simulate Boids
         var simulateBoidsJob = new SimulateBoidsJob
@@ -199,7 +221,8 @@ public class BoidSimulation : MonoBehaviour, IDisposable
             BoidsNext = _boidsNext,
             ChunkStartIndexes = _chunkStartIndexes,
             ChunkEndIndexes = _chunkEndIndexes,
-            AvoidanceVectors = _avoidanceVectors
+            AvoidanceVectors = _avoidanceVectors,
+            AttractionVectors = attractionVectors
         }.Schedule(boidCount, JobBachSize, simulateBoidsDependencies);
 
         // schedule generating TRS matrices
@@ -216,8 +239,40 @@ public class BoidSimulation : MonoBehaviour, IDisposable
 
         (_boidsCurrent, _boidsNext) = (_boidsNext, _boidsCurrent);
 
+        attractionVectors.Dispose();
+        attractorData.Dispose();
+
         // sort Boids in the new state based on their chunks
         _sortBoidsByChunksJob = _boidsCurrent.SortJob(new BoidChunkComparer(_chunkDimensions, chunkCount)).Schedule();
+    }
+
+    public void AddAttractor(BoidAttractor boidAttractor)
+    {
+        _attractors.Add(boidAttractor);
+    }
+
+    public void RemoveAttractor(BoidAttractor boidAttractor)
+    {
+        if (_attractors.Contains(boidAttractor))
+            _attractors.Remove(boidAttractor);
+    }
+
+    private NativeArray<BoidAttractorData> ConvertAttractorsToNativeArray()
+    {
+        var attractorData = new NativeArray<BoidAttractorData>(_attractors.Count, Allocator.TempJob);
+        var index = 0;
+        foreach (var attractor in _attractors)
+        {
+            attractorData[index] = new BoidAttractorData
+            {
+                Position = attractor.transform.position - transform.position,
+                Strength = attractor.Strength,
+                Radius = attractor.Radius
+            };
+            index++;
+        }
+
+        return attractorData;
     }
 
     /// <summary>
@@ -281,5 +336,10 @@ public class BoidSimulation : MonoBehaviour, IDisposable
         _raycastCommands = new NativeArray<RaycastCommand>(_totalRaycastCount, Allocator.Persistent);
         _raycastResults = new NativeArray<RaycastHit>(_totalRaycastCount, Allocator.Persistent);
         _avoidanceVectors = new NativeArray<Vector3>(boidCount, Allocator.Persistent);
+    }
+
+    private void InitializeAttractors()
+    {
+        _attractors = new HashSet<BoidAttractor>();
     }
 }

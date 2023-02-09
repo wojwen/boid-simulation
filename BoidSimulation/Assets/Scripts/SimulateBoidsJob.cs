@@ -54,6 +54,9 @@ public struct SimulateBoidsJob : IJobParallelFor
     /// <summary>Read-only array of vectors indicating the direction and strength of Boid collision avoidance.</summary>
     [ReadOnly] public NativeArray<Vector3> AvoidanceVectors;
 
+    /// <summary>Read-only array of vectors indicating the direction and strength of Boid attraction.</summary>
+    [ReadOnly] public NativeArray<Vector3> AttractionVectors;
+
     /// <summary>
     /// Simulates a Boid based on the principles of separation, alignment and cohesion.
     /// </summary>
@@ -69,8 +72,18 @@ public struct SimulateBoidsJob : IJobParallelFor
             ? CalculateAccelerationDirection(index, boid)
             : outOfBoundsAcceleration;
 
+        // spherically interpolate between calculated direction and attraction direction based on attraction strength
+        var attractionVector = AttractionVectors[index];
+        accelerationDirection =
+            Vector3.Slerp(accelerationDirection, attractionVector.normalized, attractionVector.magnitude);
+
+        // spherically interpolate between the calculated direction and avoidance direction based on avoidance strength
         var avoidanceVector = AvoidanceVectors[index];
+
+        // avoidance strength should be proportional to the velocity of the Boid to prevent oversteering
         var avoidanceStrength = avoidanceVector.magnitude * boid.Velocity.magnitude / MaxVelocity;
+
+        // spherically interpolate between the calculated direction and avoidance direction based on avoidance strength
         accelerationDirection = Vector3.Slerp(accelerationDirection, avoidanceVector.normalized, avoidanceStrength);
 
         var acceleration = accelerationDirection * MaxAcceleration;
