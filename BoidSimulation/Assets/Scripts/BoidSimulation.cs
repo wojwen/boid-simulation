@@ -64,6 +64,15 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     /// <summary>Maximum impact collision avoidance can have on Boid acceleration, between 0 and 1.</summary>
     [SerializeField] [Range(0, 1)] private float maxAvoidanceStrength;
 
+    /// <summary>Vectors indicating the direction and strength of attraction for each Boid.</summary>
+    private NativeArray<Vector3> _attractionVectors;
+
+    /// <summary>Boid attractors affecting Boids in the simulation.</summary>
+    private HashSet<BoidAttractor> _attractors;
+
+    /// <summary>Vectors indicating the direction and strength of collision avoidance for each Boid.</summary>
+    private NativeArray<Vector3> _avoidanceVectors;
+
     /// <summary>Current state of Boids, swapped with <see cref="_boidsNext"/> at the end of simulation step.</summary>
     private NativeArray<Boid> _boidsCurrent;
 
@@ -74,23 +83,17 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     /// <summary>Dimensions of each chunk.</summary>
     private Vector3Int _chunkDimensions;
 
-    /// <summary>Calculated TRS matrices.</summary>
-    private NativeArray<Matrix4x4> _trsMatrices;
-
-    /// <summary>Array to which TRS matrices need to be copied to so that Boids can be drawn.</summary>
-    private Matrix4x4[] _trsMatricesHelperArray;
+    /// <summary>Indexes of the last Boid in each chunk. -1 represents no Boids in chunk.</summary>
+    private NativeArray<int> _chunkEndIndexes;
 
     /// <summary>Indexes of the first Boid in each chunk. -1 represents no Boids in chunk.</summary>
     private NativeArray<int> _chunkStartIndexes;
 
-    /// <summary>Indexes of the last Boid in each chunk. -1 represents no Boids in chunk.</summary>
-    private NativeArray<int> _chunkEndIndexes;
+    /// <summary>Indexes of eaters which have consumed a Boid. -1 represents a Boid that hasn't been eaten.</summary>
+    private NativeArray<int> _eatenBy;
 
-    /// <summary>Total number of chunks.</summary>
-    private int _totalChunkCount;
-
-    /// <summary>Handle for a job which sorts Boids based on the chunks they are in.</summary>
-    private JobHandle _sortBoidsByChunksJob;
+    /// <summary>Boid eaters which can consume Boids in the simulation.</summary>
+    private List<BoidEater> _eaters;
 
     /// <summary>Raycast commands used for collision avoidance.</summary>
     private NativeArray<RaycastCommand> _raycastCommands;
@@ -98,23 +101,20 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     /// <summary>Results of collision avoidance raycasts.</summary>
     private NativeArray<RaycastHit> _raycastResults;
 
-    /// <summary>Vectors indicating the direction and strength of collision avoidance for each Boid.</summary>
-    private NativeArray<Vector3> _avoidanceVectors;
+    /// <summary>Handle for a job which sorts Boids based on the chunks they are in.</summary>
+    private JobHandle _sortBoidsByChunksJob;
+
+    /// <summary>Total number of chunks.</summary>
+    private int _totalChunkCount;
 
     /// <summary>Total number of collision avoidance rays cast each frame.</summary>
     private int _totalRaycastCount;
 
-    /// <summary>Boid attractors affecting Boids in the simulation.</summary>
-    private HashSet<BoidAttractor> _attractors;
+    /// <summary>Calculated TRS matrices.</summary>
+    private NativeArray<Matrix4x4> _trsMatrices;
 
-    /// <summary>Vectors indicating the direction and strength of attraction for each Boid.</summary>
-    private NativeArray<Vector3> _attractionVectors;
-
-    /// <summary>Boid eaters which can consume Boids in the simulation.</summary>
-    private List<BoidEater> _eaters;
-
-    /// <summary>Indexes of eaters which have consumed a Boid. -1 represents a Boid that hasn't been eaten.</summary>
-    private NativeArray<int> _eatenBy;
+    /// <summary>Array to which TRS matrices need to be copied to so that Boids can be drawn.</summary>
+    private Matrix4x4[] _trsMatricesHelperArray;
 
     /// <summary>
     /// Initializes Boids and other simulation components.
@@ -131,24 +131,6 @@ public class BoidSimulation : MonoBehaviour, IDisposable
 
         // start sorting Boids
         _sortBoidsByChunksJob = _boidsCurrent.SortJob(new BoidChunkComparer(_chunkDimensions, chunkCount)).Schedule();
-    }
-
-    /// <summary>
-    /// Register simulation in the manager.
-    /// </summary>
-    private void OnEnable()
-    {
-        SimulationManager.Instance.RegisterSimulation(this);
-    }
-
-
-    /// <summary>
-    /// Unregister simulation from the manager.
-    /// </summary>
-    private void OnDisable()
-    {
-        if (SimulationManager.Instance != null) // check if simulation manager wasn't already destroyed
-            SimulationManager.Instance.UnregisterSimulation(this);
     }
 
     /// <summary>
@@ -301,6 +283,39 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     }
 
     /// <summary>
+    /// Register simulation in the manager.
+    /// </summary>
+    private void OnEnable()
+    {
+        SimulationManager.Instance.RegisterSimulation(this);
+    }
+
+
+    /// <summary>
+    /// Unregister simulation from the manager.
+    /// </summary>
+    private void OnDisable()
+    {
+        if (SimulationManager.Instance != null) // check if simulation manager wasn't already destroyed
+            SimulationManager.Instance.UnregisterSimulation(this);
+    }
+
+    /// <summary>
+    /// Disposes of all allocated NativeArrays.
+    /// </summary>
+    public void Dispose()
+    {
+        _boidsCurrent.Dispose();
+        _boidsNext.Dispose();
+        _trsMatrices.Dispose();
+        _chunkStartIndexes.Dispose();
+        _chunkEndIndexes.Dispose();
+        _raycastCommands.Dispose();
+        _raycastResults.Dispose();
+        _avoidanceVectors.Dispose();
+    }
+
+    /// <summary>
     /// Returns the current Boid count.
     /// </summary>
     public int GetBoidCount()
@@ -431,21 +446,6 @@ public class BoidSimulation : MonoBehaviour, IDisposable
         }
 
         return eaterData;
-    }
-
-    /// <summary>
-    /// Disposes of all allocated NativeArrays.
-    /// </summary>
-    public void Dispose()
-    {
-        _boidsCurrent.Dispose();
-        _boidsNext.Dispose();
-        _trsMatrices.Dispose();
-        _chunkStartIndexes.Dispose();
-        _chunkEndIndexes.Dispose();
-        _raycastCommands.Dispose();
-        _raycastResults.Dispose();
-        _avoidanceVectors.Dispose();
     }
 
     /// <summary>

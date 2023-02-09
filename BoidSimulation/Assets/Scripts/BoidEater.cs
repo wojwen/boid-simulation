@@ -13,15 +13,6 @@ public class BoidEater : MonoBehaviour
     public int Score { get; private set; }
 
     /// <summary>
-    /// Adds a value to the score.
-    /// </summary>
-    /// <param name="value">Number of eaten Boids.</param>
-    public void AddScore(int value)
-    {
-        Score += value;
-    }
-
-    /// <summary>
     /// Adds eater to all simulations.
     /// </summary>
     private void Start()
@@ -48,5 +39,14 @@ public class BoidEater : MonoBehaviour
 
         foreach (var simulation in SimulationManager.Instance.GetSimulations())
             simulation.RemoveEater(this);
+    }
+
+    /// <summary>
+    /// Adds a value to the score.
+    /// </summary>
+    /// <param name="value">Number of eaten Boids.</param>
+    public void AddScore(int value)
+    {
+        Score += value;
     }
 }
