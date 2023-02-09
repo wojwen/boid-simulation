@@ -34,7 +34,7 @@ public readonly struct BoidChunkComparer : IComparer<Boid>
     /// </returns>
     public int Compare(Boid boid, Boid otherBoid)
     {
-        return BoidSimulation.DetermineChunkId(boid.Position, _chunkCount, _chunkDimensions)
-            .CompareTo(BoidSimulation.DetermineChunkId(otherBoid.Position, _chunkCount, _chunkDimensions));
+        return BoidHelpers.DetermineChunkId(boid.Position, _chunkCount, _chunkDimensions)
+            .CompareTo(BoidHelpers.DetermineChunkId(otherBoid.Position, _chunkCount, _chunkDimensions));
     }
 }

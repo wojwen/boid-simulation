@@ -38,7 +38,7 @@ public struct FindChunkBoundsJob : IJobParallelFor
         // if it's the first Boid save its index
         if (index == 0)
         {
-            var firstChunkId = BoidSimulation.DetermineChunkId(Boids[index].Position, ChunkCount, ChunkDimensions);
+            var firstChunkId = BoidHelpers.DetermineChunkId(Boids[index].Position, ChunkCount, ChunkDimensions);
             ChunkStartIndexes[firstChunkId] = index;
             return;
         }
@@ -46,14 +46,14 @@ public struct FindChunkBoundsJob : IJobParallelFor
         // if it's the last Boid save its index
         if (index == BoidCount - 1)
         {
-            var lastChunkId = BoidSimulation.DetermineChunkId(Boids[index].Position, ChunkCount, ChunkDimensions);
+            var lastChunkId = BoidHelpers.DetermineChunkId(Boids[index].Position, ChunkCount, ChunkDimensions);
             ChunkEndIndexes[lastChunkId] = index;
             return;
         }
 
         // check if the Boid is on a boundary of chunks
-        var currentChunk = BoidSimulation.DetermineChunkId(Boids[index].Position, ChunkCount, ChunkDimensions);
-        var nextChunk = BoidSimulation.DetermineChunkId(Boids[index + 1].Position, ChunkCount, ChunkDimensions);
+        var currentChunk = BoidHelpers.DetermineChunkId(Boids[index].Position, ChunkCount, ChunkDimensions);
+        var nextChunk = BoidHelpers.DetermineChunkId(Boids[index + 1].Position, ChunkCount, ChunkDimensions);
 
         if (currentChunk == nextChunk) return;
 

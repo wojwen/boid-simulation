@@ -48,6 +48,21 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     /// <summary>Number of boids in the simulation.</summary>
     [SerializeField] private int boidCount;
 
+    /// <summary>Number of evenly distributed collision avoidance rays cast for each Boid.</summary>
+    [SerializeField] private int boidRaycastCount;
+
+    /// <summary>Maximum distance at which collisions are going to be detected by a ray.</summary>
+    [SerializeField] private float raycastDistance;
+
+    /// <summary>Angle from Boid forward direction at which collision avoidance rays are going to be cast.</summary>
+    [SerializeField] private float raycastAngle;
+
+    /// <summary>Layer mask for ignoring layers when casting rays.</summary>
+    [SerializeField] private LayerMask raycastLayerMask;
+
+    /// <summary>Maximum impact collision avoidance can have on Boid acceleration, between 0 and 1.</summary>
+    [SerializeField] [Range(0, 1)] private float maxAvoidanceStrength;
+
     /// <summary>Native array containing the Boids at the current state, always swapped with <see cref="_boidsNext"/> at
     /// the end of a simulation step.</summary>
     private NativeArray<Boid> _boidsCurrent;
@@ -77,6 +92,18 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     /// <summary>Handle for a job which sorts Boids based on the chunks they are in.</summary>
     private JobHandle _sortBoidsByChunksJob;
 
+    /// <summary>Raycast commands used for collision avoidance.</summary>
+    private NativeArray<RaycastCommand> _raycastCommands;
+
+    /// <summary>Results of collision avoidance raycasts.</summary>
+    private NativeArray<RaycastHit> _raycastResults;
+
+    /// <summary>Vectors indicating the direction and strength of collision avoidance for each Boid.</summary>
+    private NativeArray<Vector3> _avoidanceVectors;
+
+    /// <summary>Total number of collision avoidance rays cast each frame.</summary>
+    private int _totalRaycastCount;
+
     /// <summary>
     /// Initializes Boids and chunks.
     /// </summary>
@@ -84,20 +111,26 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     {
         InitializeBoids();
         InitializeChunks();
+        InitializeCollisionAvoidance();
+
         _sortBoidsByChunksJob = _boidsCurrent.SortJob(new BoidChunkComparer(_chunkDimensions, chunkCount)).Schedule();
     }
 
     /// <summary>
     /// Runs the simulation. Steps of the simulation:
     /// <list>
-    /// <item>1. Swap current and next Boid arrays.</item>
-    /// <item>2. Initialize chunk start/end arrays.</item>
-    /// <item>3. Finding chunk start/end indexes.</item>
-    /// <item>4. Simulate Boids.</item>
-    /// <item>5. Generate TRS matrices.</item>
-    /// <item>6. Draw all boids.</item>
-    /// <item>7. Sort Boids based on chunks.</item>
+    /// <item>1. Initialize chunk start/end arrays.</item>
+    /// <item>2. Finding chunk start/end indexes.</item>
+    /// <item>3. Prepare raycast commands for collision avoidance.</item>
+    /// <item>4. Execute raycast commands.</item>
+    /// <item>5. Calculate collision avoidance vectors based on raycast results.</item>
+    /// <item>6. Simulate Boids.</item>
+    /// <item>7. Generate TRS matrices.</item>
+    /// <item>8. Draw all boids.</item>
+    /// <item>9. Swap current and next Boid arrays.</item>
+    /// <item>10. Sort Boids based on chunks.</item>
     /// </list>
+    /// Steps 1-2 and 3-5 are performed in parallel.
     /// </summary>
     private void Update()
     {
@@ -119,6 +152,36 @@ public class BoidSimulation : MonoBehaviour, IDisposable
             ChunkEndIndexes = _chunkEndIndexes
         }.Schedule(boidCount, JobBachSize, initializeChunkArraysJob);
 
+        // prepare raycast commands for collision avoidance
+        var prepareRaycastCommandsJob = new PrepareRaycastCommands
+        {
+            SimulationOrigin = transform.position,
+            BoidRaycastCount = boidRaycastCount,
+            RaycastDistance = raycastDistance,
+            RaycastAngle = raycastAngle,
+            LayerMask = raycastLayerMask,
+            Boids = _boidsCurrent,
+            RaycastCommands = _raycastCommands
+        }.Schedule(_totalRaycastCount, JobBachSize, _sortBoidsByChunksJob);
+
+        // execute raycast commands
+        var raycastJob =
+            RaycastCommand.ScheduleBatch(_raycastCommands, _raycastResults, JobBachSize, prepareRaycastCommandsJob);
+
+        // calculate collision avoidance vectors based on raycast results
+        var generateAvoidanceVectors = new CalculateAvoidanceVectorsJob
+        {
+            BoidRaycastCount = boidRaycastCount,
+            RaycastDistance = raycastDistance,
+            RaycastAngle = raycastAngle,
+            MaxAvoidanceStrength = maxAvoidanceStrength,
+            Boids = _boidsCurrent,
+            RaycastResults = _raycastResults,
+            AvoidanceVectors = _avoidanceVectors
+        }.Schedule(boidCount, JobBachSize, raycastJob);
+
+        var simulateBoidsDependencies = JobHandle.CombineDependencies(findChunkBoundsJob, generateAvoidanceVectors);
+
         // simulate Boids
         var simulateBoidsJob = new SimulateBoidsJob
         {
@@ -135,8 +198,9 @@ public class BoidSimulation : MonoBehaviour, IDisposable
             BoidsCurrent = _boidsCurrent,
             BoidsNext = _boidsNext,
             ChunkStartIndexes = _chunkStartIndexes,
-            ChunkEndIndexes = _chunkEndIndexes
-        }.Schedule(boidCount, JobBachSize, findChunkBoundsJob);
+            ChunkEndIndexes = _chunkEndIndexes,
+            AvoidanceVectors = _avoidanceVectors
+        }.Schedule(boidCount, JobBachSize, simulateBoidsDependencies);
 
         // schedule generating TRS matrices
         new GenerateTRSMatricesJob
@@ -166,6 +230,9 @@ public class BoidSimulation : MonoBehaviour, IDisposable
         _trsMatrices.Dispose();
         _chunkStartIndexes.Dispose();
         _chunkEndIndexes.Dispose();
+        _raycastCommands.Dispose();
+        _raycastResults.Dispose();
+        _avoidanceVectors.Dispose();
     }
 
     /// <summary>
@@ -206,18 +273,13 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     }
 
     /// <summary>
-    /// Determines the chunk ID for a given position in the simulation.
+    /// Initializes arrays and variables used for collision avoidance.
     /// </summary>
-    /// <param name="position">Position in the simulation.</param>
-    /// <param name="chunkCount">Number of chunks for each axis of the simulation.</param>
-    /// <param name="chunkDimensions">Dimensions of each chunk.</param>
-    public static int DetermineChunkId(Vector3 position, Vector3Int chunkCount, Vector3Int chunkDimensions)
+    private void InitializeCollisionAvoidance()
     {
-        // the position can be cast to int since all chunks have integer dimensions
-        var x = Mathf.Clamp((int)position.x / chunkDimensions.x, 0, chunkCount.x - 1);
-        var y = Mathf.Clamp((int)position.y / chunkDimensions.y, 0, chunkCount.y - 1);
-        var z = Mathf.Clamp((int)position.z / chunkDimensions.z, 0, chunkCount.z - 1);
-
-        return x + y * chunkCount.x + z * chunkCount.x * chunkCount.y;
+        _totalRaycastCount = boidCount * boidRaycastCount;
+        _raycastCommands = new NativeArray<RaycastCommand>(_totalRaycastCount, Allocator.Persistent);
+        _raycastResults = new NativeArray<RaycastHit>(_totalRaycastCount, Allocator.Persistent);
+        _avoidanceVectors = new NativeArray<Vector3>(boidCount, Allocator.Persistent);
     }
 }

@@ -45,11 +45,14 @@ public struct SimulateBoidsJob : IJobParallelFor
     /// <summary>Write-only array of Boids for storing simulated Boids.</summary>
     [WriteOnly] public NativeArray<Boid> BoidsNext;
 
-    /// <summary>Read-only array for storing indexes of the first Boid in each chunk.</summary>
+    /// <summary>Read-only array containing indexes of the first Boid in each chunk.</summary>
     [ReadOnly] public NativeArray<int> ChunkStartIndexes;
 
-    /// <summary>Read-only array for storing indexes of the last Boid in each chunk.</summary>
+    /// <summary>Read-only array containing indexes of the last Boid in each chunk.</summary>
     [ReadOnly] public NativeArray<int> ChunkEndIndexes;
+
+    /// <summary>Read-only array of vectors indicating the direction and strength of Boid collision avoidance.</summary>
+    [ReadOnly] public NativeArray<Vector3> AvoidanceVectors;
 
     /// <summary>
     /// Simulates a Boid based on the principles of separation, alignment and cohesion.
@@ -62,9 +65,15 @@ public struct SimulateBoidsJob : IJobParallelFor
         var outOfBoundsAcceleration = GetOutOfBoundsAccelerationDirection(boid.Position);
 
         // if the boid was out of bounds accelerate back, otherwise accelerate in the simulated direction
-        var acceleration = outOfBoundsAcceleration == Vector3.zero
-            ? CalculateAccelerationDirection(index, boid) * MaxAcceleration
-            : outOfBoundsAcceleration * MaxAcceleration;
+        var accelerationDirection = outOfBoundsAcceleration == Vector3.zero
+            ? CalculateAccelerationDirection(index, boid)
+            : outOfBoundsAcceleration;
+
+        var avoidanceVector = AvoidanceVectors[index];
+        var avoidanceStrength = avoidanceVector.magnitude * boid.Velocity.magnitude / MaxVelocity;
+        accelerationDirection = Vector3.Slerp(accelerationDirection, avoidanceVector.normalized, avoidanceStrength);
+
+        var acceleration = accelerationDirection * MaxAcceleration;
 
         // calculate new velocity and clamp it
         var newVelocity = boid.Velocity + acceleration * TimeDelta;
@@ -179,7 +188,7 @@ public struct SimulateBoidsJob : IJobParallelFor
         {
             // when determining chunk Ids the position is clamped so there is no need to check if it's out of bounds
             var edgePosition = position + new Vector3(x, y, x);
-            neighbourChunks.Add(BoidSimulation.DetermineChunkId(edgePosition, ChunkCount, ChunkDimensions));
+            neighbourChunks.Add(BoidHelpers.DetermineChunkId(edgePosition, ChunkCount, ChunkDimensions));
         }
 
         return neighbourChunks;
