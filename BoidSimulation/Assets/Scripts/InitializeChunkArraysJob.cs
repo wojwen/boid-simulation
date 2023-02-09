@@ -15,7 +15,7 @@ public struct InitializeChunkArraysJob : IJobParallelFor
     [WriteOnly] public NativeArray<int> ChunkEndIndexes;
 
     /// <summary>
-    /// Sets start and end indexes for a chunk to -1.
+    /// Sets start and end indexes for a chunk to -1, which represents no Boids in chunk.
     /// </summary>
     /// <param name="index">Index of the chunk.</param>
     public void Execute(int index)

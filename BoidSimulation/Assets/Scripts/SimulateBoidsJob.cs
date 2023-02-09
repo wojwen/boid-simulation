@@ -2,6 +2,7 @@
 using Unity.Collections;
 using Unity.Jobs;
 using UnityEngine;
+using Random = Unity.Mathematics.Random;
 
 /// <summary>
 /// Simulates Boids based on the principles of separation, alignment and cohesion.
@@ -42,7 +43,7 @@ public struct SimulateBoidsJob : IJobParallelFor
     /// <summary>Read-only array of Boids to be simulated. Boids have to be sorted based on their chunks.</summary>
     [ReadOnly] public NativeArray<Boid> BoidsCurrent;
 
-    /// <summary>Write-only array of Boids for storing simulated Boids.</summary>
+    /// <summary>Write-only array for storing simulated Boids.</summary>
     [WriteOnly] public NativeArray<Boid> BoidsNext;
 
     /// <summary>Read-only array containing indexes of the first Boid in each chunk.</summary>
@@ -57,12 +58,20 @@ public struct SimulateBoidsJob : IJobParallelFor
     /// <summary>Read-only array of vectors indicating the direction and strength of Boid attraction.</summary>
     [ReadOnly] public NativeArray<Vector3> AttractionVectors;
 
+    /// <summary>Read-only array of Boid eaters which can consume Boids in the simulation.</summary>
+    [ReadOnly] public NativeArray<BoidEaterData> EaterData;
+
+    /// <summary>Write-only array for storing indexes of eaters which have consumed a Boid.</summary>
+    [WriteOnly] public NativeArray<int> EatenBy;
+
     /// <summary>
     /// Simulates a Boid based on the principles of separation, alignment and cohesion.
     /// </summary>
     /// <param name="index">The index of the Boid in the array.</param>
     public void Execute(int index)
     {
+        if (TryEatBoid(index)) return; // if the Boid was eaten don't simulate it
+
         var boid = BoidsCurrent[index];
 
         var outOfBoundsAcceleration = GetOutOfBoundsAccelerationDirection(boid.Position);
@@ -97,6 +106,59 @@ public struct SimulateBoidsJob : IJobParallelFor
 
         // save the calculated position and velocity
         BoidsNext[index] = new Boid { Position = newPosition, Velocity = newVelocity };
+    }
+
+    /// <summary>
+    /// Checks if the Boid was eaten and if it was, transports it to the farthest bottom edge of the simulation.
+    /// </summary>
+    /// <param name="index">The index of the Boid in the array.</param>
+    /// <returns>True if the Boid was eaten and false if it wasn't.</returns>
+    private bool TryEatBoid(int index)
+    {
+        var boid = BoidsCurrent[index];
+
+        for (var i = 0; i < EaterData.Length; i++)
+        {
+            var eater = EaterData[i];
+
+            // skip if the Boid didn't get close enough to get eaten
+            if (!(Vector3.Distance(eater.Position, boid.Position) <= eater.Radius)) continue;
+
+            // move the boid to the farthest bottom edge of the simulation and randomize it's velocity
+            BoidsNext[index] = new Boid
+            {
+                Position = GetFarthestBottomEdge(boid.Position),
+                Velocity = Random.CreateFromIndex((uint)index).NextFloat3Direction()
+            };
+            EatenBy[index] = i; // save by which eater ate the Boid
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Finds bottom edge of the simulation which is farthest from a Boid.
+    /// </summary>
+    /// <param name="position">Position of the Boid.</param>
+    /// <returns></returns>
+    private Vector3 GetFarthestBottomEdge(Vector3 position)
+    {
+        var maxDistance = 0f;
+        Vector3 farthestEdge = default;
+
+        // iterate over all bottom edges
+        for (var i = 0; i <= 1; i++)
+        for (var j = 0; j <= 1; j++)
+        {
+            var edgePosition = new Vector3(i * SimulationDimensions.x, 0, j * SimulationDimensions.z);
+            var distance = Vector3.Distance(position, edgePosition);
+            if (!(distance > maxDistance)) continue; // continue if this isn't the farthest edge
+            maxDistance = distance;
+            farthestEdge = edgePosition;
+        }
+
+        return farthestEdge;
     }
 
     /// <summary>

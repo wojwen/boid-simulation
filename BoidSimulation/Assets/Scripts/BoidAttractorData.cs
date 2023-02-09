@@ -1,7 +1,7 @@
 ﻿using UnityEngine;
 
 /// <summary>
-/// Data describing a <see cref="BoidAttractor"/> ,which can be passed into a Unity Job. 
+/// Data describing a <see cref="BoidAttractor"/>, which can be passed into a Unity Job. 
 /// </summary>
 public struct BoidAttractorData
 {

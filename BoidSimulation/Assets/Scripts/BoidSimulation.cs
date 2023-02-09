@@ -64,27 +64,26 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     /// <summary>Maximum impact collision avoidance can have on Boid acceleration, between 0 and 1.</summary>
     [SerializeField] [Range(0, 1)] private float maxAvoidanceStrength;
 
-    /// <summary>Native array containing the Boids at the current state, always swapped with <see cref="_boidsNext"/> at
-    /// the end of a simulation step.</summary>
+    /// <summary>Current state of Boids, swapped with <see cref="_boidsNext"/> at the end of simulation step.</summary>
     private NativeArray<Boid> _boidsCurrent;
 
-    /// <summary>Native array for storing the new state of the Boids, always swapped with <see cref="_boidsCurrent"/> at
-    /// the end of a simulation step. Can be read from while the other array is being sorted.</summary>
+    /// <summary>New state of the Boids, swapped with <see cref="_boidsCurrent"/> at the end of a simulation step. Can
+    /// be read from while the other array is being sorted.</summary>
     private NativeArray<Boid> _boidsNext;
 
     /// <summary>Dimensions of each chunk.</summary>
     private Vector3Int _chunkDimensions;
 
-    /// <summary>Native array for storing the calculated TRS matrices.</summary>
+    /// <summary>Calculated TRS matrices.</summary>
     private NativeArray<Matrix4x4> _trsMatrices;
 
     /// <summary>Array to which TRS matrices need to be copied to so that Boids can be drawn.</summary>
     private Matrix4x4[] _trsMatricesHelperArray;
 
-    /// <summary>Native array for storing indexes of the first Boid in each chunk.</summary>
+    /// <summary>Indexes of the first Boid in each chunk. -1 represents no Boids in chunk.</summary>
     private NativeArray<int> _chunkStartIndexes;
 
-    /// <summary>Native array for storing indexes of the last Boid in each chunk.</summary>
+    /// <summary>Indexes of the last Boid in each chunk. -1 represents no Boids in chunk.</summary>
     private NativeArray<int> _chunkEndIndexes;
 
     /// <summary>Total number of chunks.</summary>
@@ -105,18 +104,30 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     /// <summary>Total number of collision avoidance rays cast each frame.</summary>
     private int _totalRaycastCount;
 
-    /// <summary>Boids attractors affecting Boids in the simulation.</summary>
+    /// <summary>Boid attractors affecting Boids in the simulation.</summary>
     private HashSet<BoidAttractor> _attractors;
+
+    /// <summary>Vectors indicating the direction and strength of attraction for each Boid.</summary>
+    private NativeArray<Vector3> _attractionVectors;
+
+    /// <summary>Boid eaters which can consume Boids in the simulation.</summary>
+    private List<BoidEater> _eaters;
+
+    /// <summary>Indexes of eaters which have consumed a Boid. -1 represents a Boid that hasn't been eaten.</summary>
+    private NativeArray<int> _eatenBy;
 
     /// <summary>
     /// Initializes Boids and other simulation components.
     /// </summary>
     private void Awake()
     {
+        SimulationManager.Instance.RegisterSimulation(this);
+
         InitializeBoids();
         InitializeChunks();
         InitializeCollisionAvoidance();
         InitializeAttractors();
+        InitializeEaters();
 
         // start sorting Boids
         _sortBoidsByChunksJob = _boidsCurrent.SortJob(new BoidChunkComparer(_chunkDimensions, chunkCount)).Schedule();
@@ -149,13 +160,16 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     /// <item>4. Execute raycast commands.</item>
     /// <item>5. Calculate collision avoidance vectors based on raycast results.</item>
     /// <item>6. Calculate attraction vectors.</item>
-    /// <item>7. Simulate Boids.</item>
-    /// <item>8. Generate TRS matrices.</item>
-    /// <item>9. Draw all boids.</item>
-    /// <item>10. Swap current and next Boid arrays.</item>
-    /// <item>11. Sort Boids based on chunks.</item>
+    /// <item>7. Initialize eaten-by native array.</item>
+    /// <item>8. Simulate Boids.</item>
+    /// <item>9. Count eater scores.</item>
+    /// <item>10. Generate TRS matrices.</item>
+    /// <item>11. Draw all boids.</item>
+    /// <item>12. Swap current and next Boid arrays.</item>
+    /// <item>13. Set eater scores.</item>
+    /// <item>14. Sort Boids based on chunks.</item>
     /// </list>
-    /// Steps 1-2, 3-5 and 6 are performed in parallel.
+    /// Steps 1-2, 3-5, 6 and 7 are performed in parallel as well as 9 and 10.
     /// </summary>
     private void Update()
     {
@@ -206,20 +220,28 @@ public class BoidSimulation : MonoBehaviour, IDisposable
         }.Schedule(boidCount, JobBachSize, raycastJob);
 
         // 6. Schedule preparing native arrays and calculate attraction vectors
-        var attractionVectors = new NativeArray<Vector3>(boidCount, Allocator.TempJob);
         var attractorData = ConvertAttractorsToNativeArray();
         var calculateAttractionVectorsJob = new CalculateAttractionVectorsJob
         {
             Boids = _boidsCurrent,
             AttractorData = attractorData,
-            AttractionVectors = attractionVectors
+            AttractionVectors = _attractionVectors
         }.Schedule(boidCount, JobBachSize, _sortBoidsByChunksJob);
 
-        // all three jobs have to complete before Boid simulation begins
-        var simulateBoidsDependencies = JobHandle.CombineDependencies(findChunkBoundsJob, calculateAvoidanceVectorsJob,
-            calculateAttractionVectorsJob);
+        // 7. Schedule initializing eaten-by native array
+        var initializeEatenByArrayJob = new InitializeEatenByArrayJob
+        {
+            EatenBy = _eatenBy
+        }.Schedule(boidCount, JobBachSize, _sortBoidsByChunksJob);
 
-        // 7. Schedule simulating Boids
+        var eaterData = ConvertEatersToNativeArray();
+
+        // all four jobs have to complete before Boid simulation begins
+        var simulateBoidsDependencies = JobHandle.CombineDependencies(findChunkBoundsJob,
+            JobHandle.CombineDependencies(calculateAvoidanceVectorsJob, calculateAttractionVectorsJob,
+                initializeEatenByArrayJob));
+
+        // 8. Schedule simulating Boids
         var simulateBoidsJob = new SimulateBoidsJob
         {
             SeparationStrength = separationStrength,
@@ -237,10 +259,20 @@ public class BoidSimulation : MonoBehaviour, IDisposable
             ChunkStartIndexes = _chunkStartIndexes,
             ChunkEndIndexes = _chunkEndIndexes,
             AvoidanceVectors = _avoidanceVectors,
-            AttractionVectors = attractionVectors
+            AttractionVectors = _attractionVectors,
+            EaterData = eaterData,
+            EatenBy = _eatenBy
         }.Schedule(boidCount, JobBachSize, simulateBoidsDependencies);
 
-        // 8. Generate TRS matrices
+        // 9. Schedule counting eater scores
+        var eaterScores = new NativeArray<int>(_eaters.Count, Allocator.TempJob);
+        var countEaterScoresJob = new CountEaterScoresJob
+        {
+            EatenBy = _eatenBy,
+            Scores = eaterScores
+        }.Schedule(simulateBoidsJob);
+
+        // 10. Generate TRS matrices
         new GenerateTRSMatricesJob
         {
             SimulationOrigin = transform.position,
@@ -249,16 +281,22 @@ public class BoidSimulation : MonoBehaviour, IDisposable
         }.Schedule(boidCount, JobBachSize, simulateBoidsJob).Complete();
         _trsMatrices.CopyTo(_trsMatricesHelperArray); // copy the TRS matrices to the helper array
 
-        // 9. Draw the Boids in the simulation using the TRS matrices
+        // 11. Draw the Boids in the simulation using the TRS matrices
         Graphics.DrawMeshInstanced(boidMesh, 0, boidMaterial, _trsMatricesHelperArray, boidCount);
 
-        (_boidsCurrent, _boidsNext) = (_boidsNext, _boidsCurrent); // 10. swap current and next Boid arrays
+        // 12. swap current and next Boid arrays
+        (_boidsCurrent, _boidsNext) = (_boidsNext, _boidsCurrent);
 
-        // dispose of temp attraction arrays
-        attractionVectors.Dispose();
+        // 13. Set eater scores
+        countEaterScoresJob.Complete();
+        SetEaterScores(eaterScores);
+
+        // dispose of temp arrays
         attractorData.Dispose();
+        eaterData.Dispose();
+        eaterScores.Dispose();
 
-        // 11. Sort Boids in the new state based on their chunks
+        // 14. Schedule sorting Boids based on their chunks
         _sortBoidsByChunksJob = _boidsCurrent.SortJob(new BoidChunkComparer(_chunkDimensions, chunkCount)).Schedule();
     }
 
@@ -289,10 +327,11 @@ public class BoidSimulation : MonoBehaviour, IDisposable
         boidCount = newBoidCount;
 
         // initialize simulation with new Boid count
-        // (attractors don't need to be initialized since they were not disposed)
         InitializeBoids(tmpBoids);
         InitializeChunks();
         InitializeCollisionAvoidance();
+        InitializeAttractors();
+        InitializeEaters();
 
         // start sorting Boids
         _sortBoidsByChunksJob = _boidsCurrent.SortJob(new BoidChunkComparer(_chunkDimensions, chunkCount)).Schedule();
@@ -304,7 +343,8 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     /// <param name="boidAttractor">Attractor to add.</param>
     public void AddAttractor(BoidAttractor boidAttractor)
     {
-        _attractors.Add(boidAttractor);
+        if (!_attractors.Contains(boidAttractor))
+            _attractors.Add(boidAttractor);
     }
 
     /// <summary>
@@ -338,6 +378,59 @@ public class BoidSimulation : MonoBehaviour, IDisposable
         }
 
         return attractorData;
+    }
+
+
+    /// <summary>
+    /// Adds eater to the simulation making it able to eat Boids inside it.
+    /// </summary>
+    /// <param name="boidEater">Attractor to add.</param>
+    public void AddEater(BoidEater boidEater)
+    {
+        if (!_eaters.Contains(boidEater))
+            _eaters.Add(boidEater);
+    }
+
+    /// <summary>
+    /// Removes eater from the simulation stopping it from eating Boids inside it.
+    /// </summary>
+    /// <param name="boidEater">Attractor to remove.</param>
+    public void RemoveEater(BoidEater boidEater)
+    {
+        if (_eaters.Contains(boidEater))
+            _eaters.Remove(boidEater);
+    }
+
+    /// <summary>
+    /// Increases eater scores.
+    /// </summary>
+    /// <param name="scores">Array with scores accumulated in this simulation step.</param>
+    private void SetEaterScores(NativeArray<int> scores)
+    {
+        for (var i = 0; i < _eaters.Count; i++)
+            _eaters[i].AddScore(scores[i]);
+    }
+
+    /// <summary>
+    /// Converts all added eaters to a NativeArray which can be passed into a Unity Job.
+    /// </summary>
+    /// <returns>Eaters in a NativeArray, which has to be disposed after the Job is completed.</returns>
+    private NativeArray<BoidEaterData> ConvertEatersToNativeArray()
+    {
+        var eaterData = new NativeArray<BoidEaterData>(_eaters.Count, Allocator.TempJob);
+        var index = 0;
+        foreach (var eater in _eaters)
+        {
+            // convert attractor object to a struct since only value types can be passed into jobs
+            eaterData[index] = new BoidEaterData
+            {
+                Position = eater.transform.position - transform.position,
+                Radius = eater.Radius
+            };
+            index++;
+        }
+
+        return eaterData;
     }
 
     /// <summary>
@@ -431,10 +524,20 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     }
 
     /// <summary>
-    /// Initializes attractors hash set.
+    /// Initializes containers used for attractors.
     /// </summary>
     private void InitializeAttractors()
     {
-        _attractors = new HashSet<BoidAttractor>();
+        _attractors ??= new HashSet<BoidAttractor>(); // don't delete attractors when re-initializing
+        _attractionVectors = new NativeArray<Vector3>(boidCount, Allocator.Persistent);
+    }
+
+    /// <summary>
+    /// Initializes containers used for eaters.
+    /// </summary>
+    private void InitializeEaters()
+    {
+        _eaters ??= new List<BoidEater>();
+        _eatenBy = new NativeArray<int>(boidCount, Allocator.Persistent);
     }
 }
