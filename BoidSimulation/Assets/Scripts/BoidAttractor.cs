@@ -16,7 +16,7 @@ public class BoidAttractor : MonoBehaviour
     /// <summary>
     /// Add attractor to all simulations.
     /// </summary>
-    private void Start()
+    private void OnEnable()
     {
         foreach (var simulation in SimulationManager.Instance.GetSimulations())
             simulation.AddAttractor(this);
@@ -25,7 +25,7 @@ public class BoidAttractor : MonoBehaviour
     /// <summary>
     /// Remove attractor from all simulations.
     /// </summary>
-    private void OnDestroy()
+    private void OnDisable()
     {
         if (SimulationManager.Instance == null) return; // check if simulation manager wasn't already destroyed
 

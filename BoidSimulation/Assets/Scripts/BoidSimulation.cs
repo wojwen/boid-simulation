@@ -109,23 +109,34 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     private HashSet<BoidAttractor> _attractors;
 
     /// <summary>
-    /// Initializes Boids and chunks.
+    /// Initializes Boids and other simulation components.
     /// </summary>
     private void Awake()
     {
-        SimulationManager.Instance.RegisterSimulation(this);
-
         InitializeBoids();
         InitializeChunks();
         InitializeCollisionAvoidance();
         InitializeAttractors();
 
+        // start sorting Boids
         _sortBoidsByChunksJob = _boidsCurrent.SortJob(new BoidChunkComparer(_chunkDimensions, chunkCount)).Schedule();
     }
 
-    private void OnDestroy()
+    /// <summary>
+    /// Register simulation in the manager.
+    /// </summary>
+    private void OnEnable()
     {
-        if (SimulationManager.Instance != null)
+        SimulationManager.Instance.RegisterSimulation(this);
+    }
+
+
+    /// <summary>
+    /// Unregister simulation from the manager.
+    /// </summary>
+    private void OnDisable()
+    {
+        if (SimulationManager.Instance != null) // check if simulation manager wasn't already destroyed
             SimulationManager.Instance.UnregisterSimulation(this);
     }
 
@@ -137,24 +148,25 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     /// <item>3. Prepare raycast commands for collision avoidance.</item>
     /// <item>4. Execute raycast commands.</item>
     /// <item>5. Calculate collision avoidance vectors based on raycast results.</item>
-    /// <item>6. Simulate Boids.</item>
-    /// <item>7. Generate TRS matrices.</item>
-    /// <item>8. Draw all boids.</item>
-    /// <item>9. Swap current and next Boid arrays.</item>
-    /// <item>10. Sort Boids based on chunks.</item>
+    /// <item>6. Calculate attraction vectors.</item>
+    /// <item>7. Simulate Boids.</item>
+    /// <item>8. Generate TRS matrices.</item>
+    /// <item>9. Draw all boids.</item>
+    /// <item>10. Swap current and next Boid arrays.</item>
+    /// <item>11. Sort Boids based on chunks.</item>
     /// </list>
-    /// Steps 1-2 and 3-5 are performed in parallel.
+    /// Steps 1-2, 3-5 and 6 are performed in parallel.
     /// </summary>
     private void Update()
     {
-        // schedule initializing chunk start/end arrays
+        // 1. Schedule initializing chunk start/end arrays
         var initializeChunkArraysJob = new InitializeChunkArraysJob
         {
             ChunkStartIndexes = _chunkStartIndexes,
             ChunkEndIndexes = _chunkEndIndexes
         }.Schedule(_totalChunkCount, JobBachSize, _sortBoidsByChunksJob);
 
-        // schedule finding chunk start/end indexes
+        // 2. Schedule finding chunk start/end indexes
         var findChunkBoundsJob = new FindChunkBoundsJob
         {
             BoidCount = boidCount,
@@ -165,7 +177,7 @@ public class BoidSimulation : MonoBehaviour, IDisposable
             ChunkEndIndexes = _chunkEndIndexes
         }.Schedule(boidCount, JobBachSize, initializeChunkArraysJob);
 
-        // prepare raycast commands for collision avoidance
+        // 3. Schedule preparing raycast commands for collision avoidance
         var prepareRaycastCommandsJob = new PrepareRaycastCommands
         {
             SimulationOrigin = transform.position,
@@ -177,11 +189,11 @@ public class BoidSimulation : MonoBehaviour, IDisposable
             RaycastCommands = _raycastCommands
         }.Schedule(_totalRaycastCount, JobBachSize, _sortBoidsByChunksJob);
 
-        // execute raycast commands
+        // 4. Schedule executing raycast commands
         var raycastJob =
             RaycastCommand.ScheduleBatch(_raycastCommands, _raycastResults, JobBachSize, prepareRaycastCommandsJob);
 
-        // calculate collision avoidance vectors based on raycast results
+        // 5. Schedule calculating collision avoidance vectors based on raycast results
         var calculateAvoidanceVectorsJob = new CalculateAvoidanceVectorsJob
         {
             BoidRaycastCount = boidRaycastCount,
@@ -193,7 +205,7 @@ public class BoidSimulation : MonoBehaviour, IDisposable
             AvoidanceVectors = _avoidanceVectors
         }.Schedule(boidCount, JobBachSize, raycastJob);
 
-        // prepare native arrays and calculate attraction vectors
+        // 6. Schedule preparing native arrays and calculate attraction vectors
         var attractionVectors = new NativeArray<Vector3>(boidCount, Allocator.TempJob);
         var attractorData = ConvertAttractorsToNativeArray();
         var calculateAttractionVectorsJob = new CalculateAttractionVectorsJob
@@ -207,7 +219,7 @@ public class BoidSimulation : MonoBehaviour, IDisposable
         var simulateBoidsDependencies = JobHandle.CombineDependencies(findChunkBoundsJob, calculateAvoidanceVectorsJob,
             calculateAttractionVectorsJob);
 
-        // simulate Boids
+        // 7. Schedule simulating Boids
         var simulateBoidsJob = new SimulateBoidsJob
         {
             SeparationStrength = separationStrength,
@@ -228,7 +240,7 @@ public class BoidSimulation : MonoBehaviour, IDisposable
             AttractionVectors = attractionVectors
         }.Schedule(boidCount, JobBachSize, simulateBoidsDependencies);
 
-        // schedule generating TRS matrices
+        // 8. Generate TRS matrices
         new GenerateTRSMatricesJob
         {
             SimulationOrigin = transform.position,
@@ -237,16 +249,52 @@ public class BoidSimulation : MonoBehaviour, IDisposable
         }.Schedule(boidCount, JobBachSize, simulateBoidsJob).Complete();
         _trsMatrices.CopyTo(_trsMatricesHelperArray); // copy the TRS matrices to the helper array
 
-        // draw the Boids in the simulation using the TRS matrices
+        // 9. Draw the Boids in the simulation using the TRS matrices
         Graphics.DrawMeshInstanced(boidMesh, 0, boidMaterial, _trsMatricesHelperArray, boidCount);
 
-        (_boidsCurrent, _boidsNext) = (_boidsNext, _boidsCurrent);
+        (_boidsCurrent, _boidsNext) = (_boidsNext, _boidsCurrent); // 10. swap current and next Boid arrays
 
         // dispose of temp attraction arrays
         attractionVectors.Dispose();
         attractorData.Dispose();
 
-        // sort Boids in the new state based on their chunks
+        // 11. Sort Boids in the new state based on their chunks
+        _sortBoidsByChunksJob = _boidsCurrent.SortJob(new BoidChunkComparer(_chunkDimensions, chunkCount)).Schedule();
+    }
+
+    /// <summary>
+    /// Returns the current Boid count.
+    /// </summary>
+    public int GetBoidCount()
+    {
+        return boidCount;
+    }
+
+    /// <summary>
+    /// Initializes the simulation with new Boid count.
+    /// </summary>
+    /// <param name="newBoidCount">New Boid count.</param>
+    public void ChangeBoidCount(int newBoidCount)
+    {
+        // finish sorting Job if it's still in progress
+        if (!_sortBoidsByChunksJob.IsCompleted)
+            _sortBoidsByChunksJob.Complete();
+
+        // copy current Boids to temp array
+        var tmpBoids = new NativeArray<Boid>(boidCount, Allocator.Temp);
+        _boidsCurrent.CopyTo(tmpBoids);
+
+        Dispose(); // dispose of all native containers
+
+        boidCount = newBoidCount;
+
+        // initialize simulation with new Boid count
+        // (attractors don't need to be initialized since they were not disposed)
+        InitializeBoids(tmpBoids);
+        InitializeChunks();
+        InitializeCollisionAvoidance();
+
+        // start sorting Boids
         _sortBoidsByChunksJob = _boidsCurrent.SortJob(new BoidChunkComparer(_chunkDimensions, chunkCount)).Schedule();
     }
 
@@ -308,16 +356,44 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     }
 
     /// <summary>
-    /// Initializes all Boids at random positions and with random velocities.
+    /// Initializes Boids at random positions and with random velocities. Optionally uses Boids from an existing array.
     /// </summary>
-    private void InitializeBoids()
+    /// <param name="existingBoids">Optional array containing Boids which should be used for initialization. If the
+    /// array is smaller than the Boid count, the remaining Boids are going to be initialized randomly. If it's larger
+    /// then not all Boid are going to be used.</param>
+    private void InitializeBoids(NativeArray<Boid>? existingBoids = null)
     {
         _boidsCurrent = new NativeArray<Boid>(boidCount, Allocator.Persistent);
         _boidsNext = new NativeArray<Boid>(boidCount, Allocator.Persistent);
         _trsMatrices = new NativeArray<Matrix4x4>(boidCount, Allocator.Persistent);
         _trsMatricesHelperArray = new Matrix4x4[boidCount];
 
-        for (var i = 0; i < boidCount; i++)
+        var randomInitializationStartIndex = 0;
+
+        if (existingBoids.HasValue) // check if optional Boid array was passed
+        {
+            // if the optional array length is larger then Boid count copy a slice with maximum number of Boids
+            if (existingBoids.Value.Length > boidCount)
+            {
+                var slice = new NativeSlice<Boid>(existingBoids.Value, 0, boidCount);
+                slice.CopyTo(_boidsCurrent);
+            } // if the optional array length is smaller then fill target array as much as possible
+            else if (existingBoids.Value.Length < boidCount)
+            {
+                var slice = new NativeSlice<Boid>(_boidsCurrent, 0, existingBoids.Value.Length);
+                slice.CopyFrom(existingBoids.Value);
+            }
+            else // if the optional array length is equal to Boid count copy all Boids
+            {
+                existingBoids.Value.CopyTo(_boidsCurrent);
+            }
+
+            // set start index so that random initialization begins after the copied Boids (or doesn't begin at all)
+            randomInitializationStartIndex = existingBoids.Value.Length;
+        }
+
+        // randomly initialize remaining Boids
+        for (var i = randomInitializationStartIndex; i < boidCount; i++)
         {
             var randomPosition = new Vector3
             {
@@ -327,7 +403,6 @@ public class BoidSimulation : MonoBehaviour, IDisposable
             };
 
             _boidsCurrent[i] = new Boid { Position = randomPosition, Velocity = Random.insideUnitSphere };
-            _boidsNext[i] = new Boid { Position = randomPosition, Velocity = Random.insideUnitSphere };
         }
     }
 
