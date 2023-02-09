@@ -11,7 +11,7 @@ namespace Simulation.Jobs
     /// Prepares raycast commands for Boid collision avoidance, in parallel.
     /// </summary>
     [BurstCompile]
-    public struct PrepareRaycastCommands : IJobParallelFor
+    public struct PrepareRaycastCommandsJob : IJobParallelFor
     {
         /// <summary>Origin of the simulation the Boids are in.</summary>
         public Vector3 SimulationOrigin;

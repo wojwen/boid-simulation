@@ -180,7 +180,7 @@ namespace Simulation.Core
             }.Schedule(boidCount, JobBachSize, initializeChunkArraysJob);
 
             // 3. Schedule preparing raycast commands for collision avoidance
-            var prepareRaycastCommandsJob = new PrepareRaycastCommands
+            var prepareRaycastCommandsJob = new PrepareRaycastCommandsJob
             {
                 SimulationOrigin = transform.position,
                 BoidRaycastCount = boidRaycastCount,
