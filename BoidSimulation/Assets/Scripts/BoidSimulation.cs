@@ -105,6 +105,7 @@ public class BoidSimulation : MonoBehaviour, IDisposable
     /// <summary>Total number of collision avoidance rays cast each frame.</summary>
     private int _totalRaycastCount;
 
+    /// <summary>Boids attractors affecting Boids in the simulation.</summary>
     private HashSet<BoidAttractor> _attractors;
 
     /// <summary>
@@ -192,6 +193,7 @@ public class BoidSimulation : MonoBehaviour, IDisposable
             AvoidanceVectors = _avoidanceVectors
         }.Schedule(boidCount, JobBachSize, raycastJob);
 
+        // prepare native arrays and calculate attraction vectors
         var attractionVectors = new NativeArray<Vector3>(boidCount, Allocator.TempJob);
         var attractorData = ConvertAttractorsToNativeArray();
         var calculateAttractionVectorsJob = new CalculateAttractionVectorsJob
@@ -201,6 +203,7 @@ public class BoidSimulation : MonoBehaviour, IDisposable
             AttractionVectors = attractionVectors
         }.Schedule(boidCount, JobBachSize, _sortBoidsByChunksJob);
 
+        // all three jobs have to complete before Boid simulation begins
         var simulateBoidsDependencies = JobHandle.CombineDependencies(findChunkBoundsJob, calculateAvoidanceVectorsJob,
             calculateAttractionVectorsJob);
 
@@ -239,6 +242,7 @@ public class BoidSimulation : MonoBehaviour, IDisposable
 
         (_boidsCurrent, _boidsNext) = (_boidsNext, _boidsCurrent);
 
+        // dispose of temp attraction arrays
         attractionVectors.Dispose();
         attractorData.Dispose();
 
@@ -246,23 +250,36 @@ public class BoidSimulation : MonoBehaviour, IDisposable
         _sortBoidsByChunksJob = _boidsCurrent.SortJob(new BoidChunkComparer(_chunkDimensions, chunkCount)).Schedule();
     }
 
+    /// <summary>
+    /// Adds attractor to the simulation making it affect Boids inside it.
+    /// </summary>
+    /// <param name="boidAttractor">Attractor to add.</param>
     public void AddAttractor(BoidAttractor boidAttractor)
     {
         _attractors.Add(boidAttractor);
     }
 
+    /// <summary>
+    /// Removes attractor from the simulation stopping it from affecting Boids inside it.
+    /// </summary>
+    /// <param name="boidAttractor">Attractor to remove.</param>
     public void RemoveAttractor(BoidAttractor boidAttractor)
     {
         if (_attractors.Contains(boidAttractor))
             _attractors.Remove(boidAttractor);
     }
 
+    /// <summary>
+    /// Converts all added attractors to a NativeArray which can be passed into a Unity Job.
+    /// </summary>
+    /// <returns>Attractors in a NativeArray, which has to be disposed after the Job is completed.</returns>
     private NativeArray<BoidAttractorData> ConvertAttractorsToNativeArray()
     {
         var attractorData = new NativeArray<BoidAttractorData>(_attractors.Count, Allocator.TempJob);
         var index = 0;
         foreach (var attractor in _attractors)
         {
+            // convert attractor object to a struct since only value types can be passed into jobs
             attractorData[index] = new BoidAttractorData
             {
                 Position = attractor.transform.position - transform.position,
@@ -338,6 +355,9 @@ public class BoidSimulation : MonoBehaviour, IDisposable
         _avoidanceVectors = new NativeArray<Vector3>(boidCount, Allocator.Persistent);
     }
 
+    /// <summary>
+    /// Initializes attractors hash set.
+    /// </summary>
     private void InitializeAttractors()
     {
         _attractors = new HashSet<BoidAttractor>();
