@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 1543158063106475887}
   - component: {fileID: 195228810515695003}
   - component: {fileID: 5035213498618933800}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Point Light
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -133,7 +133,7 @@ GameObject:
   - component: {fileID: 1212404445559698257}
   - component: {fileID: 8189220488392773927}
   - component: {fileID: 2394292282661564057}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: PositiveAttractor
   m_TagString: Untagged
   m_Icon: {fileID: 0}
