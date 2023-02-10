@@ -1,4 +1,5 @@
-﻿using Simulation.Core;
+﻿using System;
+using Simulation.Core;
 using UnityEngine;
 
 namespace Simulation.Interactive
@@ -44,6 +45,9 @@ namespace Simulation.Interactive
                 simulation.RemoveEater(this);
         }
 
+        /// <summary>Event invoked when the score increases with the amount by which it increased.</summary>
+        public event Action<int> ScoreIncreased;
+
         /// <summary>
         /// Adds a value to the score.
         /// </summary>
@@ -51,6 +55,7 @@ namespace Simulation.Interactive
         public void AddScore(int value)
         {
             Score += value;
+            ScoreIncreased?.Invoke(value);
         }
     }
 }
