@@ -14,6 +14,9 @@ namespace Gameplay
         /// <summary>Attractor representing the anglerfish light.</summary>
         [SerializeField] private BoidAttractor lightAttractor;
 
+        /// <summary>Attractor representing the anglerfish mouth.</summary>
+        [SerializeField] private BoidAttractor mouthAttractor;
+
         /// <summary>Renderer of the anglerfish light.</summary>
         [SerializeField] private Renderer lightRenderer;
 
@@ -39,13 +42,22 @@ namespace Gameplay
         [SerializeField] private float maxHealth;
 
         /// <summary>Multiplier for the attraction strength of anglerfish light.</summary>
-        [SerializeField] private float attractionStrengthMultiplier;
+        [SerializeField] private float lightAttractionStrengthMultiplier;
+
+        /// <summary>Multiplier for the attraction strength of anglerfish mouth.</summary>
+        [SerializeField] private float mouthAttractionStrengthMultiplier;
 
         /// <summary>Multiplier for the intensity of anglerfish light.</summary>
         [SerializeField] private float lightIntensityMultiplier;
 
-        /// <summary>Health decrease speed, per second.</summary>
-        [SerializeField] private float healthDecreaseSpeed;
+        /// <summary>Starting health decrease speed, per second. Increases to the max value over time.</summary>
+        [SerializeField] private float initialHealthDecreaseSpeed;
+
+        /// <summary>Maximum health decrease speed, per second.</summary>
+        [SerializeField] private float maxHealthDecreaseSpeed;
+
+        /// <summary>Time after which the maximum health decrease speed is archived.</summary>
+        [SerializeField] private float maxHealthDecreaseSpeedTime;
 
         /// <summary>Amount of health gained by eating a fish.</summary>
         [SerializeField] private float fishHealthBonus;
@@ -59,17 +71,26 @@ namespace Gameplay
         /// <summary>MaterialPropertyBlock for changing emission color of the sphere.</summary>
         private MaterialPropertyBlock _materialPropertyBlock;
 
+        /// <summary>Real time since startup when the anglerfish was created.</summary>
+        private float _startTime;
+
+        /// <summary>Current health decrease speed.</summary>
+        private float HealthDecreaseSpeed => Mathf.Lerp(initialHealthDecreaseSpeed, maxHealthDecreaseSpeed,
+            (Time.realtimeSinceStartup - _startTime) / maxHealthDecreaseSpeedTime);
+
         /// <summary>Current health percentage, between 0 and 1.</summary>
         public float HealthPercentage => _health / maxHealth;
 
         /// <summary>Current score.</summary>
         public int Score => anglerfishMouth.Score;
 
+
         /// <summary>
         /// Initializes variables and sets light color.
         /// </summary>
         private void Start()
         {
+            _startTime = Time.realtimeSinceStartup;
             _health = maxHealth;
             _materialPropertyBlock = new MaterialPropertyBlock();
             pointLight.color = lightColor;
@@ -106,16 +127,23 @@ namespace Gameplay
         /// </summary>
         private void ChangeLightIntensity()
         {
-            // calculate base intensity
+            // calculate base intensity and set attractor intensity
             var velocity = anglerfishRigidbody.velocity.magnitude;
             float intensity;
             if (velocity < minimumAttractVelocity)
+            {
                 intensity = 1f - velocity / minimumAttractVelocity;
+                lightAttractor.SetStrength(intensity * lightAttractionStrengthMultiplier);
+                mouthAttractor.SetStrength(0f);
+            }
             else
+            {
                 intensity = minimumAttractVelocity - velocity;
+                mouthAttractor.SetStrength(intensity * mouthAttractionStrengthMultiplier);
+                lightAttractor.SetStrength(0f);
+            }
 
-            // set intensity for attractor, renderer and light
-            lightAttractor.SetStrength(intensity * attractionStrengthMultiplier);
+            // set intensity for renderer and light
             var lightIntensity = Mathf.Clamp01(intensity) * lightIntensityMultiplier;
             _materialPropertyBlock.SetColor(EmissionColor, lightColor * lightIntensity);
             lightRenderer.SetPropertyBlock(_materialPropertyBlock);
@@ -127,7 +155,7 @@ namespace Gameplay
         /// </summary>
         private void DecreaseHealth()
         {
-            _health -= healthDecreaseSpeed * Time.deltaTime;
+            _health -= HealthDecreaseSpeed * Time.deltaTime;
         }
 
         /// <summary>
@@ -148,7 +176,7 @@ namespace Gameplay
         /// <param name="increase">Amount the score increased.</param>
         private void ScoreIncreasedHandler(int increase)
         {
-            _health += fishHealthBonus * increase;
+            _health = Mathf.Min(maxHealth, _health + fishHealthBonus * increase);
             audioSource.PlayOneShot(eatSound);
         }
     }

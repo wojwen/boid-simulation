@@ -10,9 +10,10 @@ GameObject:
   m_Component:
   - component: {fileID: 6445113775826896535}
   - component: {fileID: 6682438654467763760}
+  - component: {fileID: 4357183284036821861}
   - component: {fileID: 2767181322419884810}
   m_Layer: 6
-  m_Name: BoidEater
+  m_Name: Mouth
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -26,7 +27,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 3726272986673085157}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 1.099, y: -0.299, z: 0}
+  m_LocalPosition: {x: 0.704, y: -0.201, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -45,7 +46,21 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 22b6f4ee02454b86885054a889cd93db, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  <Radius>k__BackingField: 0.5
+  <Radius>k__BackingField: 0.7
+--- !u!114 &4357183284036821861
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3726272986673085157}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4a374c7feaa3440c939060d897b22453, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  <Strength>k__BackingField: 0
+  <Radius>k__BackingField: 3.5
 --- !u!82 &2767181322419884810
 AudioSource:
   m_ObjectHideFlags: 0
@@ -280,7 +295,7 @@ MonoBehaviour:
         m_Flags: 8
       m_Flags: 0
     m_Reference: {fileID: 0}
-  moveForce: 1500
+  moveForce: 850
   sensitivity: {x: 4, y: 5}
   verticalClamp: 85
 --- !u!54 &149351139623026313
@@ -291,8 +306,8 @@ Rigidbody:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 4647483543203676681}
   serializedVersion: 4
-  m_Mass: 10
-  m_Drag: 1
+  m_Mass: 1
+  m_Drag: 3
   m_AngularDrag: 0.05
   m_CenterOfMass: {x: 0, y: 0, z: 0}
   m_InertiaTensor: {x: 1, y: 1, z: 1}
@@ -330,9 +345,9 @@ CapsuleCollider:
   m_Enabled: 1
   serializedVersion: 2
   m_Radius: 1.17
-  m_Height: 3.31
+  m_Height: 2.94
   m_Direction: 2
-  m_Center: {x: 0, y: 0, z: -0.26}
+  m_Center: {x: 0, y: 0, z: -0.32}
 --- !u!114 &3666517128721030070
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -346,6 +361,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   lightAttractor: {fileID: 2956177961748931840}
+  mouthAttractor: {fileID: 4357183284036821861}
   lightRenderer: {fileID: 5319384597176358404}
   pointLight: {fileID: 548318857752902852}
   lightColor: {r: 1, g: 0.7402891, b: 0, a: 0}
@@ -353,10 +369,13 @@ MonoBehaviour:
   anglerfishRigidbody: {fileID: 149351139623026313}
   audioSource: {fileID: 2767181322419884810}
   eatSound: {fileID: 8300000, guid: a9ce7ec0a01a07e4582b542103852388, type: 3}
-  maxHealth: 150
-  attractionStrengthMultiplier: 5
+  maxHealth: 100
+  lightAttractionStrengthMultiplier: 10
+  mouthAttractionStrengthMultiplier: 5
   lightIntensityMultiplier: 10
-  healthDecreaseSpeed: 1
+  initialHealthDecreaseSpeed: 1
+  maxHealthDecreaseSpeed: 2
+  maxHealthDecreaseSpeedTime: 120
   fishHealthBonus: 1
   minimumAttractVelocity: 1
 --- !u!1 &5851049320344435915
@@ -488,7 +507,7 @@ GameObject:
   - component: {fileID: 4406173537149299349}
   - component: {fileID: 2956177961748931840}
   m_Layer: 6
-  m_Name: Attractor
+  m_Name: LightAttractor
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -522,7 +541,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   <Strength>k__BackingField: 0
-  <Radius>k__BackingField: 10
+  <Radius>k__BackingField: 7
 --- !u!1 &6928186765281997539
 GameObject:
   m_ObjectHideFlags: 0
