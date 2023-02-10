@@ -16,6 +16,11 @@ namespace Simulation.Interactive
         [field: SerializeField]
         public float Radius { get; private set; }
 
+        public void SetStrength(float strength)
+        {
+            Strength = strength;
+        }
+
         /// <summary>
         /// Adds attractor to all simulations.
         /// </summary>
