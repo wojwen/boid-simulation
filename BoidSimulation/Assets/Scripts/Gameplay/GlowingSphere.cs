@@ -1,6 +1,5 @@
 using Simulation.Interactive;
 using UnityEngine;
-using UnityEngine.Serialization;
 
 namespace Gameplay
 {
@@ -9,6 +8,9 @@ namespace Gameplay
     /// </summary>
     public class GlowingSphere : MonoBehaviour
     {
+        /// <summary>The identifier for the emission color property in the shader.</summary>
+        private static readonly int EmissionColor = Shader.PropertyToID("_EmissionColor");
+
         /// <summary>Curve representing the intensity of the sphere over time.</summary>
         [SerializeField] private AnimationCurve intensityCurve;
 
@@ -36,14 +38,11 @@ namespace Gameplay
         /// <summary>Multiplier used for emission intensity.</summary>
         [SerializeField] private float emissionIntensityMultiplier;
 
-        /// <summary>Time the sphere was created.</summary>
-        private float _timeCreated;
-
         /// <summary>MaterialPropertyBlock for changing emission color of the sphere.</summary>
         private MaterialPropertyBlock _materialPropertyBlock;
 
-        /// <summary>The identifier for the emission color property in the shader.</summary>
-        private static readonly int EmissionColor = Shader.PropertyToID("_EmissionColor");
+        /// <summary>Time the sphere was created.</summary>
+        private float _timeCreated;
 
         /// <summary>
         /// Initializes variables and light color.
