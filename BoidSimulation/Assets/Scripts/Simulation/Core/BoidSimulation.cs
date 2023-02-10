@@ -431,7 +431,8 @@ namespace Simulation.Core
         private void SetEaterScores(NativeArray<int> scores)
         {
             for (var i = 0; i < _eaters.Count; i++)
-                _eaters[i].AddScore(scores[i]);
+                if (scores[i] > 0)
+                    _eaters[i].AddScore(scores[i]);
         }
 
         /// <summary>

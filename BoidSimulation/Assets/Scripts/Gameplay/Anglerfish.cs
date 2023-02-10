@@ -29,6 +29,12 @@ namespace Gameplay
         /// <summary>Rigidbody of the anglerfish.</summary>
         [SerializeField] private Rigidbody anglerfishRigidbody;
 
+        /// <summary>Audio source for playing sounds when a fish is eaten.</summary>
+        [SerializeField] private AudioSource audioSource;
+
+        /// <summary>Sound played every time a fish is eaten.</summary>
+        [SerializeField] private AudioClip eatSound;
+
         /// <summary>Maximum health of the anglerfish. This is also the starting amount.</summary>
         [SerializeField] private float maxHealth;
 
@@ -143,6 +149,7 @@ namespace Gameplay
         private void ScoreIncreasedHandler(int increase)
         {
             _health += fishHealthBonus * increase;
+            audioSource.PlayOneShot(eatSound);
         }
     }
 }
