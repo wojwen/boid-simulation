@@ -267,7 +267,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   <Strength>k__BackingField: 0
-  <Radius>k__BackingField: 20
+  <Radius>k__BackingField: 10
 --- !u!114 &2394292282661564057
 MonoBehaviour:
   m_ObjectHideFlags: 0

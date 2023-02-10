@@ -6,7 +6,7 @@ namespace Gameplay
     /// <summary>
     /// Component responsible for spawning positive and negative attractors at random positions.
     /// </summary>
-    public class AttractorSpawner : MonoBehaviour
+    public class RandomAttractorSpawner : MonoBehaviour
     {
         /// <summary>The area within which the attractors are randomly spawned.</summary>
         [SerializeField] private Vector2 spawnArea;

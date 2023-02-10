@@ -46,7 +46,7 @@ PrefabInstance:
     - target: {fileID: 2394292282661564057, guid: 1cf49d1b77b6fd647b8c955ee29c03b3,
         type: 3}
       propertyPath: attractorStrengthMultiplier
-      value: -10
+      value: -15
       objectReference: {fileID: 0}
     - target: {fileID: 4095132564430047190, guid: 1cf49d1b77b6fd647b8c955ee29c03b3,
         type: 3}
@@ -107,11 +107,6 @@ PrefabInstance:
         type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 8189220488392773927, guid: 1cf49d1b77b6fd647b8c955ee29c03b3,
-        type: 3}
-      propertyPath: <Radius>k__BackingField
-      value: 30
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
